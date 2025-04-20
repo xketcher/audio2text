@@ -3,3 +3,5 @@ uvicorn[standard]
 pydub
 SpeechRecognition
 python-multipart
+openai-whisper
+ffmpeg-python
