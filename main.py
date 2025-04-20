@@ -22,19 +22,20 @@ async def transcribe_audio(file: UploadFile = File(...)):
     full_transcript = ""
 
     with sr.AudioFile(wav_filename) as source:
-        audio_length = int(source.DURATION)
+        total_duration = int(source.DURATION)
         chunk_duration = 60  # seconds
         offset = 0
 
-        while offset < audio_length:
+        while offset < total_duration:
             try:
+                source.seek(offset)
                 audio_data = recognizer.record(source, duration=chunk_duration)
                 text = recognizer.recognize_google(audio_data, language="my-MM")
             except sr.UnknownValueError:
-                text = "[Unrecognized]"
+                text = "[မသိသာတဲ့အသံ]"
             except sr.RequestError as e:
-                text = f"[API Error: {e}]"
-                break  # Stop if there's a serious error
+                text = f"[API error: {e}]"
+                break
 
             full_transcript += text + " "
             offset += chunk_duration
