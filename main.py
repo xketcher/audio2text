@@ -1,50 +1,37 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
-import base64
-import tempfile
-import os
 from pydub import AudioSegment
 import speech_recognition as sr
+import os
+import uuid
 
 app = FastAPI()
 
-@app.post("/")
-async def transcribe(request: Request):
-    try:
-        data = await request.json()
-        lang = data.get("lang")
-        content_base64 = data.get("content")
+@app.post("/transcribe/")
+async def transcribe_audio(file: UploadFile = File(...)):
+    # Save uploaded file
+    temp_filename = f"{uuid.uuid4()}.m4a"
+    with open(temp_filename, "wb") as f:
+        f.write(await file.read())
 
-        if not lang or not content_base64:
-            return JSONResponse(content={"error": "Missing 'lang' or 'content'"}, status_code=400)
+    # Convert m4a to wav using pydub
+    audio = AudioSegment.from_file(temp_filename, format="m4a")
+    wav_filename = temp_filename.replace(".m4a", ".wav")
+    audio.export(wav_filename, format="wav")
 
-        # Decode base64 to mp3
-        audio_bytes = base64.b64decode(content_base64)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as mp3_file:
-            mp3_file.write(audio_bytes)
-            mp3_path = mp3_file.name
+    # Recognize speech using SpeechRecognition
+    recognizer = sr.Recognizer()
+    with sr.AudioFile(wav_filename) as source:
+        audio_data = recognizer.record(source)
+        try:
+            text = recognizer.recognize_google(audio_data)
+        except sr.UnknownValueError:
+            text = "Could not understand audio"
+        except sr.RequestError as e:
+            text = f"API Error: {e}"
 
-        # Convert mp3 to wav
-        wav_path = mp3_path.replace(".mp3", ".wav")
-        sound = AudioSegment.from_mp3(mp3_path)
-        sound.export(wav_path, format="wav")
+    # Clean up
+    os.remove(temp_filename)
+    os.remove(wav_filename)
 
-        # Speech recognition
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(wav_path) as source:
-            audio = recognizer.record(source)
-
-        text = recognizer.recognize_google(audio, language=lang)
-
-        # Cleanup
-        os.remove(mp3_path)
-        os.remove(wav_path)
-
-        return JSONResponse(content={"transcript": text})
-
-    except sr.UnknownValueError:
-        return JSONResponse(content={"error": "Speech unintelligible"}, status_code=400)
-    except sr.RequestError as e:
-        return JSONResponse(content={"error": f"Speech Recognition error: {e}"}, status_code=500)
-    except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+    return JSONResponse(content={"transcription": text})
